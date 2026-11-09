@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LUDO PODO — Online Multiplayer</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101827;color:#f8fafc;font-family:system-ui,Arial;display:flex;justify-content:center}
+.wrap{width:min(96vw,650px);padding:16px 12px 30px;text-align:center}
+h1{margin:4px 0;color:#67e8f9;letter-spacing:3px;font-size:clamp(28px,7vw,42px)}
+.sub{color:#cbd5e1;margin:0 0 14px}.panel{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:12px;margin:12px 0}
+input{width:min(100%,280px);padding:12px;border-radius:10px;border:1px solid #64748b;font-size:16px;margin:5px;background:#f8fafc;color:#0f172a}
+button{border:0;border-radius:12px;padding:12px 16px;font-weight:800;font-size:15px;background:#22d3ee;color:#082f49;cursor:pointer;margin:4px}
+button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:#cbd5e1}
+#status{font-weight:700;min-height:28px}.turn{font-size:14px;color:#cbd5e1;margin:5px}
+#dice{font-size:34px;margin:4px 12px;vertical-align:middle}
+.board{width:min(92vw,540px);aspect-ratio:1;margin:12px auto;background:#e2e8f0;border:5px solid #f8fafc;border-radius:8px;display:grid;grid-template-columns:repeat(15,1fr);grid-template-rows:repeat(15,1fr);overflow:hidden}
+.cell{border:1px solid #cbd5e1;display:flex;align-items:center;justify-content:center;position:relative;font-size:clamp(8px,2.2vw,14px);color:#0f172a}
+.home{background:#ef4444}.home.y{background:#facc15}.home.g{background:#22c55e}.home.b{background:#3b82f6}
+.homeinner{background:#fff9;border-radius:14px;width:75%;height:75%;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10%;place-items:center}
+.dot{width:75%;aspect-ratio:1;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 4px #0005}
+.red{background:#ef4444}.yellow{background:#eab308}.green{background:#16a34a}.blue{background:#2563eb}
+.path{background:#fff}.safe{background:#cbd5e1}.center{grid-column:7/10;grid-row:7/10;background:conic-gradient(#eab308 0 25%,#2563eb 0 50%,#16a34a 0 75%,#ef4444 0);display:flex;align-items:center;justify-content:center;font-weight:900;color:white;text-shadow:0 1px 3px #000}
+.piece{width:44%;height:44%;border-radius:50%;border:2px solid white;box-shadow:0 1px 3px #0008;cursor:pointer;display:flex;align-items:center;justify-content:center;color:white;font-weight:900;font-size:10px;padding:0;margin:1px}
+.legend{display:flex;justify-content:space-around;gap:5px;flex-wrap:wrap;font-size:12px;color:#cbd5e1}
+.note{font-size:12px;color:#94a3b8;line-height:1.5}.hidden{display:none!important}
+#players{font-size:13px;color:#cbd5e1;line-height:1.7}
+</style>
+</head>
+<body><main class="wrap">
+<h1>LUDO PODO</h1><p class="sub">Online multiplayer · Up to 4 players</p>
+
+<div class="panel" id="lobby">
+  <div id="connection">Connecting to Firebase…</div>
+  <p><input id="playerName" maxlength="16" placeholder="உங்கள் பெயர் / Player name"></p>
+  <button id="createBtn">Create Room</button>
+  <p><input id="roomCode" maxlength="6" placeholder="6-digit Room Code" inputmode="numeric"></p>
+  <button id="joinBtn">Join Room</button>
+  <p class="note">ஒரு நபர் Room உருவாக்கி, வரும் 6 இலக்க Code-ஐ நண்பர்களுடன் பகிரவும்.</p>
+</div>
+
+<div class="panel hidden" id="gamePanel">
+  <div>Room Code: <strong id="codeDisplay"></strong> <button class="secondary" id="copyBtn">Copy Code</button></div>
+  <div id="players"></div>
+  <div id="status">Waiting…</div><div class="turn" id="turn"></div>
+  <button id="roll">🎲 Roll Dice</button><span id="dice">⚀</span>
+  <button class="secondary" id="leaveBtn">Leave Room</button>
+</div>
+<div class="board hidden" id="board"></div>
+<div class="panel legend hidden" id="legend"><span>🔴 Red</span><span>🟡 Yellow</span><span>🟢 Green</span><span>🔵 Blue</span></div>
+<p class="note">Demo rules: roll 6 to bring a token out; reach 30 spaces to finish. This starter has basic online room sync. It is not a production-ready Ludo game and has no cash, betting or prizes.</p>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBmDvDUhWTb3IwloWAfc2VUgeaNN8LfDH0",
+  authDomain: "ludo-podo.firebaseapp.com",
+  databaseURL: "https://ludo-podo-default-rtdb.firebaseio.com",
+  projectId: "ludo-podo",
+  storageBucket: "ludo-podo.firebasestorage.app",
+  messagingSenderId: "833143381022",
+  appId: "1:833143381022:web:60d37c257178321d92e20f",
+  measurementId: "G-E9WEMXYQJ5"
+};
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth(), db=firebase.database();
+const $=id=>document.getElementById(id);
+let uid=null, room=null, roomRef=null, playerSlot=null, currentRoom=null, pendingRoll=null;
+const names=['Red','Yellow','Green','Blue'], colors=['red','yellow','green','blue'], starts=[0,8,16,24];
+const route=[];
+for(let c=6;c<=8;c++)route.push([5,c]);
+for(let r=4;r>=0;r--)route.push([r,8]);
+for(let c=9;c<=14;c++)route.push([0,c]);
+for(let r=1;r<=5;r++)route.push([r,14]);
+for(let c=13;c>=9;c--)route.push([6,c]);
+for(let r=7;r<=8;r++)route.push([r,8]);
+for(let c=9;c<=14;c++)route.push([8,c]);
+for(let r=9;r<=14;r++)route.push([r,14]);
+for(let c=13;c>=9;c--)route.push([14,c]);
+for(let r=13;r>=9;r--)route.push([r,8]);
+for(let c=7;c>=0;c--)route.push([8,c]);
+for(let r=9;r<=14;r++)route.push([r,0]);
+for(let c=1;c<=5;c++)route.push([6,c]);
+const freshGame=()=>({turn:0,roll:null,positions:[[-1,-1,-1,-1],[-1,-1,-1,-1],[-1,-1,-1,-1],[-1,-1,-1,-1]],finished:[0,0,0,0],winner:null});
+function msg(s){$('status').textContent=s}
+auth.signInAnonymously().then(cred=>{uid=cred.user.uid;$('connection').textContent='Firebase connected ✓';$('createBtn').disabled=false;$('joinBtn').disabled=false;}).catch(e=>{$('connection').textContent='Firebase sign-in error: '+e.message;});
+$('createBtn').disabled=true;$('joinBtn').disabled=true;
+function getName(){return $('playerName').value.trim().slice(0,16)||'Player'}
+function makeCode(){return String(Math.floor(100000+Math.random()*900000))}
+async function createRoom(){
+ if(!uid)return; const code=makeCode(), ref=db.ref('rooms/'+code);
+ const initial={createdAt:firebase.database.ServerValue.TIMESTAMP,host:uid,players:{[uid]:{name:getName(),slot:0}},game:freshGame()};
+ try{await ref.set(initial);enterRoom(code,0);msg('Room created. Share the code with friends.');}catch(e){alert('Room create failed: '+e.message)}
+}
+async function joinRoom(){
+ if(!uid)return;const code=$('roomCode').value.trim();if(!/^\d{6}$/.test(code)){alert('Enter a valid 6-digit room code.');return}
+ const ref=db.ref('rooms/'+code);
+ try{
+  const snap=await ref.get();if(!snap.exists()){alert('Room not found. Check the code.');return}
+  const players=snap.child('players').val()||{};
+  if(players[uid]){enterRoom(code,players[uid].slot);return}
+  const used=Object.values(players).map(p=>p.slot), slot=[0,1,2,3].find(s=>!used.includes(s));
+  if(slot===undefined){alert('Room is full (4 players).');return}
+  await ref.child('players/'+uid).set({name:getName(),slot});
+  enterRoom(code,slot);
+ }catch(e){alert('Join failed: '+e.message)}
+}
+function enterRoom(code,slot){
+ room=code;playerSlot=slot;roomRef=db.ref('rooms/'+code);$('lobby').classList.add('hidden');$('gamePanel').classList.remove('hidden');$('board').classList.remove('hidden');$('legend').classList.remove('hidden');$('codeDisplay').textContent=code;
+ roomRef.on('value',snap=>{if(!snap.exists()){msg('Room was closed.');return}currentRoom=snap.val();render();});
+}
+function render(){
+ if(!currentRoom)return;const players=currentRoom.players||{},game=currentRoom.game||freshGame();
+ $('players').innerHTML=Object.values(players).sort((a,b)=>a.slot-b.slot).map(p=>(p.slot===playerSlot?'▶ ':'')+names[p.slot]+' — '+p.name).join('　|　')+'<br>Your seat: '+names[playerSlot];
+ const who=Object.values(players).find(p=>p.slot===game.turn);
+ if(game.winner!==null&&game.winner!==undefined)msg('🏆 '+names[game.winner]+' wins!');
+ else if(game.roll===null)msg((who?who.name:names[game.turn])+"'s turn — roll the dice");
+ else msg(names[game.turn]+' rolled '+game.roll+'. Tap your token.');
+ $('turn').textContent='Your seat: '+names[playerSlot]+' · '+(game.finished?.[playerSlot]||0)+'/4 tokens finished';
+ $('roll').disabled=game.turn!==playerSlot||game.roll!==null||game.winner!==null;
+ $('dice').textContent=game.roll?['','⚀','⚁','⚂','⚃','⚄','⚅'][game.roll]:'⚀';
+ drawBoard(game);
+}
+function drawBoard(game){
+ const board=$('board');board.innerHTML='';
+ const homes=[['red',1,1],['yellow',1,10],['green',10,1],['blue',10,10]];
+ homes.forEach(([cl,r,c])=>{let d=document.createElement('div');d.className='home '+(cl==='yellow'?'y':cl==='green'?'g':cl==='blue'?'b':'');d.style.gridRow=`${r}/${r+6}`;d.style.gridColumn=`${c}/${c+6}`;let inn=document.createElement('div');inn.className='homeinner';for(let i=0;i<4;i++){let dot=document.createElement('div');dot.className='dot '+cl;inn.append(dot)}d.append(inn);board.append(d)});
+ const cells=new Map();route.forEach(([r,c],i)=>{let d=document.createElement('div');d.className='cell path'+([0,8,16,24].includes(i)?' safe':'');d.style.gridRow=r+1;d.style.gridColumn=c+1;d.textContent=[0,8,16,24].includes(i)?'★':'';board.append(d);cells.set(i,d)});
+ let center=document.createElement('div');center.className='cell center';center.textContent='PODO';board.append(center);
+ (game.positions||[]).forEach((arr,pi)=>arr.forEach((pos,ti)=>{if(pos<0||pos>=30)return;let cell=cells.get((starts[pi]+pos)%route.length);if(!cell)return;let b=document.createElement('button');b.className='piece '+colors[pi];b.textContent=pi+1;b.title=names[pi]+' token '+(ti+1);b.onclick=()=>moveToken(pi,ti);cell.append(b)}));
+}
+async function rollDice(){
+ if(!currentRoom||playerSlot===null)return;
+ try{await roomRef.child('game').transaction(g=>{
+  if(!g||g.turn!==playerSlot||g.roll!==null||g.winner!==null)return;
+  const n=Math.floor(Math.random()*6)+1;g.roll=n;
+  const can=g.positions[playerSlot].some(v=>v===-1?n===6:v+n<=30);
+  if(!can){g.roll=null;g.turn=(g.turn+1)%4;g.lastMessage=names[playerSlot]+' has no valid move.'}
+  else g.lastMessage='';
+  return g;
+ });}catch(e){msg('Dice error: '+e.message)}
+}
+async function moveToken(pi,ti){
+ if(!currentRoom||pi!==playerSlot)return;
+ try{await roomRef.child('game').transaction(g=>{
+  if(!g||g.turn!==playerSlot||g.roll===null||g.winner!==null)return;
+  let old=g.positions[pi][ti],n=g.roll;if(old===-1){if(n!==6)return;g.positions[pi][ti]=0}
+  else{let next=old+n;if(next>30)return;g.positions[pi][ti]=next;if(next===30)g.finished[pi]++}
+  g.roll=null;
+  if(g.finished[pi]===4)g.winner=pi;
+  else g.turn=(g.turn+1)%4;
+  return g;
+ });}catch(e){msg('Move error: '+e.message)}
+}
+$('createBtn').onclick=createRoom;$('joinBtn').onclick=joinRoom;$('roll').onclick=rollDice;
+$('copyBtn').onclick=()=>{navigator.clipboard?.writeText(room).then(()=>alert('Room code copied: '+room)).catch(()=>alert('Room code: '+room))};
+$('leaveBtn').onclick=async()=>{if(roomRef){roomRef.off();await roomRef.child('players/'+uid).remove();}room=null;roomRef=null;playerSlot=null;currentRoom=null;$('gamePanel').classList.add('hidden');$('board').classList.add('hidden');$('legend').classList.add('hidden');$('lobby').classList.remove('hidden');};
+</script>
+</body></html>
